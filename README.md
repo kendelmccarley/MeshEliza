@@ -1,9 +1,15 @@
 # MeshEliza
 
-> **PRE-ALPHA — work in progress.**
-> This release has known bugs, incomplete features, and UI rough edges.
-> It is published for development tracking only.  Expect breaking changes
-> between commits.  Do not rely on it for real mesh-radio operations.
+**MeshEliza runs the [Eliza](https://en.wikipedia.org/wiki/ELIZA) chatbot on a
+Meshtastic node, responding to direct messages over the mesh radio network.**
+When a remote node sends a direct message beginning with the word "eliza", the
+bot opens a session and replies as the classic psychotherapist Eliza for the
+duration of the conversation.  Send "bye" or "quit" to end the session.
+
+> **⚠ UNTESTED — this code has not been run against real hardware and may not
+> work.**  It is a development prototype published for tracking purposes only.
+> Expect bugs, incomplete features, and breaking changes between commits.
+> Do not rely on it for real mesh-radio operations.
 
 MeshEliza is a terminal-based (TUI) client for Meshtastic LoRa mesh radio
 networks, designed to run on a Raspberry Pi or any Linux system with a
