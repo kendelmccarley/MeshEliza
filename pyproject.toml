@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=42"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mesheliza"
+version = "0.1.0"
+description = "Meshtastic TUI client with Eliza chatbot"
+requires-python = ">=3.11"
+dependencies = [
+    "textual>=0.80.0",
+    "meshtastic>=2.7.7",
+    "bleak>=0.22.3",
+    "pyserial>=3.5",
+    "pypubsub>=4.0.3",
+    "protobuf>=4.21.12",
+    "anyio>=4.0.0",
+]
+
+[project.scripts]
+mesheliza = "meshtty.main:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["meshtty*"]
+
+[tool.setuptools.package-data]
+"meshtty.data" = ["*.csv"]
+"meshtty.eliza" = ["*.txt"]

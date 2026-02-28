@@ -1,0 +1,250 @@
+/* mesheliza.tcss — global layout
+ *
+ * Design principles:
+ *  - All interactive targets are at least 3 lines tall (finger-friendly)
+ *  - No hardcoded pixel values; fractional/percentage units throughout
+ *  - Dark theme by default (matches Pi headless terminal defaults)
+ */
+
+/* ------------------------------------------------------------------ */
+/* App-level                                                            */
+/* ------------------------------------------------------------------ */
+
+App {
+    background: $background;
+}
+
+
+/* ------------------------------------------------------------------ */
+/* MainScreen tabs                                                      */
+/* ------------------------------------------------------------------ */
+
+TabbedContent {
+    height: 1fr;
+}
+
+TabPane {
+    height: 1fr;
+    padding: 0;
+}
+
+/* ------------------------------------------------------------------ */
+/* MessagesView                                                         */
+/* ------------------------------------------------------------------ */
+
+MessagesView {
+    height: 1fr;
+    layout: vertical;
+}
+
+MessageView {
+    height: 1fr;
+    overflow-y: auto;
+    padding: 0;
+    background: $surface;
+}
+
+MessageView Label {
+    height: auto;
+    padding: 0;
+}
+
+MessageView .mine {
+    color: $accent;
+}
+
+MessageView .theirs {
+    color: $text;
+}
+
+/* Compose bar */
+ComposeBar {
+    dock: bottom;
+    height: 3;
+    background: $surface;
+    border-top: solid $primary;
+}
+
+ComposeBar Horizontal {
+    height: 3;
+    align: left middle;
+}
+
+ComposeBar Input {
+    width: 1fr;
+    height: 3;
+}
+
+ComposeBar Button {
+    width: 10;
+    min-height: 3;
+    margin: 0 0 0 1;
+}
+
+
+/* ------------------------------------------------------------------ */
+/* NodeListView                                                         */
+/* ------------------------------------------------------------------ */
+
+NodeListView {
+    height: 1fr;
+    layout: vertical;
+}
+
+NodeTable {
+    height: 1fr;
+}
+
+NodeTable DataTable {
+    height: 1fr;
+}
+
+DataTable > .datatable--header {
+    background: $primary 20%;
+}
+
+DataTable > .datatable--cursor {
+    background: $primary 40%;
+}
+
+/* ------------------------------------------------------------------ */
+/* NodeDetailModal                                                      */
+/* ------------------------------------------------------------------ */
+
+NodeDetailModal {
+    align: center middle;
+}
+
+#modal-container {
+    width: 60;
+    height: auto;
+    max-height: 80vh;
+    border: round $primary;
+    background: $surface;
+    padding: 1 2;
+}
+
+#modal-title {
+    color: $primary;
+    text-style: bold;
+    padding: 0 0 1 0;
+}
+
+.field-label {
+    color: $text-muted;
+    padding: 1 0 0 0;
+}
+
+.field-value {
+    padding: 0 0 0 2;
+}
+
+#close-btn {
+    margin-top: 1;
+    min-height: 3;
+    width: 100%;
+}
+
+/* ------------------------------------------------------------------ */
+/* SettingsView                                                         */
+/* ------------------------------------------------------------------ */
+
+SettingsView {
+    height: 1fr;
+    overflow-y: auto;
+    padding: 1 2;
+}
+
+.section-header {
+    color: $primary;
+    text-style: bold;
+    padding: 1 0 0 0;
+}
+
+SettingsView .row {
+    height: 4;
+    layout: horizontal;
+    align: left middle;
+}
+
+SettingsView .row Label {
+    width: 28;
+}
+
+SettingsView .row Input,
+SettingsView .row Select {
+    width: 1fr;
+    min-height: 3;
+}
+
+SettingsView Switch {
+    min-height: 3;
+}
+
+#save-btn {
+    margin-top: 2;
+    min-height: 3;
+    width: 20;
+}
+
+#save-status {
+    padding: 1 0;
+    color: $success;
+}
+
+#disconnect-btn {
+    margin-top: 1;
+    min-height: 3;
+    width: 20;
+}
+
+/* ------------------------------------------------------------------ */
+/* ConnectionScreen                                                     */
+/* ------------------------------------------------------------------ */
+
+ConnectionScreen {
+    align: center middle;
+}
+
+#conn-container {
+    width: 80;
+    height: auto;
+    border: round $primary;
+    padding: 1 2;
+}
+
+#status-label {
+    height: 3;
+    content-align: center middle;
+    color: $warning;
+}
+
+#error-label {
+    height: 3;
+    content-align: center middle;
+    color: $error;
+}
+
+#remember-row {
+    height: 3;
+    align: left middle;
+}
+
+#remember-row Label {
+    padding: 0 1;
+}
+
+.section-label {
+    padding: 1 0 0 0;
+    color: $text-muted;
+}
+
+ConnectionScreen DataTable {
+    height: 8;
+}
+
+/* All buttons touchscreen-friendly globally */
+Button {
+    min-height: 3;
+    margin: 0 0 0 0;
+}
