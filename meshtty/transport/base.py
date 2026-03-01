@@ -40,7 +40,6 @@ class TransportManager(ABC):
             channelIndex=channel,
             wantAck=want_ack,
             onResponse=on_ack,
-            onResponseAckPermitted=on_ack is not None,
         )
 
     def get_nodes(self) -> dict:
