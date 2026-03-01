@@ -187,6 +187,22 @@ class MessagesView(Widget):
                 # Start a new session if none exists or the previous one timed out
                 greeting = eliza.ensure_session(event.from_id)
                 if greeting:
+                    # New session: send a brief introduction first, then the
+                    # normal Eliza greeting, then the response to the first message.
+                    intro = (
+                        "My name is Eliza, an early natural language processing "
+                        "computer program first created in 1966."
+                    )
+                    now = int(time.time())
+                    if transport and transport.is_connected:
+                        try:
+                            transport.send_text(intro, destination=event.from_id, channel=0)
+                        except Exception:
+                            pass
+                    view.append_message(prefix=prefix, text=intro, rx_time=now, is_mine=True)
+                    self._write_message("me", event.from_id, 0, intro, now, True, None, prefix)
+                    self._log("TX", prefix, intro)
+
                     now = int(time.time())
                     if transport and transport.is_connected:
                         try:
