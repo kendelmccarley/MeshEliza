@@ -22,10 +22,26 @@ class TransportManager(ABC):
         text: str,
         destination: str = "^all",
         channel: int = 0,
-    ) -> None:
+        on_ack=None,
+    ):
+        """Send text and return the sent packet (a protobuf MeshPacket).
+
+        If *on_ack* is provided and *destination* is a node (not "^all"),
+        wantAck is set to True and *on_ack* is called with the ACK/NAK dict
+        when a response arrives.  The returned packet's .id attribute can be
+        used to correlate with the on_ack response.
+        """
         if self._interface is None:
             raise RuntimeError("Not connected")
-        self._interface.sendText(text, destinationId=destination, channelIndex=channel)
+        want_ack = destination != "^all" and on_ack is not None
+        return self._interface.sendText(
+            text,
+            destinationId=destination,
+            channelIndex=channel,
+            wantAck=want_ack,
+            onResponse=on_ack,
+            onResponseAckPermitted=on_ack is not None,
+        )
 
     def get_nodes(self) -> dict:
         if self._interface is None:

@@ -62,12 +62,18 @@ class MessageView(Widget):
         text: str,
         rx_time: int,
         is_mine: bool = False,
-    ) -> None:
+    ) -> Label:
+        """Append a message and return the Label so callers can update it later."""
         formatted = _format_message(prefix, text, rx_time, is_mine)
         css_class = "mine" if is_mine else "theirs"
         label = Label(formatted, classes=css_class, markup=False)
         self.mount(label)
         self.scroll_end(animate=False)
+        return label
+
+    def update_ack_status(self, label: Label, status: str) -> None:
+        """Append an ACK status marker to an existing message label."""
+        label.update(str(label.renderable) + " " + status)
 
     def load_messages(self, rows: list) -> None:
         """Bulk-load historical messages (called from worker result)."""

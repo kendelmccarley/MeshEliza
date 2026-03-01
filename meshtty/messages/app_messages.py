@@ -61,6 +61,21 @@ class ConnectionLost(Message, bubble=False):
         super().__init__()
 
 
+class AckReceived(Message, bubble=False):
+    """ACK or NAK received for a previously sent packet.
+
+    status values:
+      "*A"  — acknowledged directly by the destination node
+      "*O"  — acknowledged by a different node (overheard / relayed)
+      "*-"  — no response before timeout
+    """
+
+    def __init__(self, packet_id: int, status: str) -> None:
+        self.packet_id = packet_id
+        self.status = status
+        super().__init__()
+
+
 class TransportChanged(Message, bubble=False):
     """User switched to a different transport type."""
 

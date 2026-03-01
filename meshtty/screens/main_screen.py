@@ -8,6 +8,7 @@ from textual.screen import Screen
 from textual.widgets import TabbedContent, TabPane
 
 from meshtty.messages.app_messages import (
+    AckReceived,
     ConnectionEstablished,
     ConnectionLost,
     NodeUpdated,
@@ -68,6 +69,12 @@ class MainScreen(Screen):
             pass
 
     def on_text_message_received(self, event: TextMessageReceived) -> None:
+        try:
+            self.query_one("#messages-view", MessagesView).post_message(event)
+        except Exception:
+            pass
+
+    def on_ack_received(self, event: AckReceived) -> None:
         try:
             self.query_one("#messages-view", MessagesView).post_message(event)
         except Exception:

@@ -16,7 +16,7 @@ from textual.binding import Binding
 from textual.events import Key
 from textual.widget import Widget
 
-from meshtty.messages.app_messages import TextMessageReceived
+from meshtty.messages.app_messages import AckReceived, TextMessageReceived
 from meshtty.widgets.compose_bar import ComposeBar
 from meshtty.widgets.message_view import MessageView
 
@@ -38,6 +38,7 @@ class MessagesView(Widget):
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
         self._last_prefix: str = ""
+        self._pending_acks: dict = {}  # packet_id (int) → Label
 
     def compose(self) -> ComposeResult:
         yield MessageView(id="message-view")
@@ -88,11 +89,19 @@ class MessagesView(Widget):
         """Determine a human-readable prefix for an incoming message."""
         transport = self.app.transport
         if event.to_id == "^all":
+            channel_name = f"Ch {event.channel}"
             if transport:
                 for idx, name in transport.get_channels():
                     if idx == event.channel:
-                        return name
-            return f"Ch {event.channel}"
+                        channel_name = name
+                        break
+                nodes = transport.get_nodes()
+                node = nodes.get(event.from_id, {})
+                user = node.get("user", {}) if node else {}
+                short = user.get("shortName", "").strip()
+                if short:
+                    return f"{channel_name} {short}"
+            return channel_name
         else:
             if transport:
                 nodes = transport.get_nodes()
@@ -157,18 +166,7 @@ class MessagesView(Widget):
                     )
                     self._log("RX", prefix, text)
                     # Send reply back to sender and display it
-                    if transport and transport.is_connected:
-                        try:
-                            transport.send_text(reply, destination=event.from_id, channel=0)
-                        except Exception:
-                            pass
-                    now = int(time.time())
-                    view.append_message(prefix=prefix, text=reply, rx_time=now, is_mine=True)
-                    self._write_message(
-                        "me", event.from_id, 0,
-                        reply, now, True, None, prefix,
-                    )
-                    self._log("TX", prefix, reply)
+                    self._send_dm_tracked(reply, event.from_id, prefix)
                     return
 
             # ----------------------------------------------------------------
@@ -187,44 +185,18 @@ class MessagesView(Widget):
                 # Start a new session if none exists or the previous one timed out
                 greeting = eliza.ensure_session(event.from_id)
                 if greeting:
-                    # New session: send a brief introduction first, then the
-                    # normal Eliza greeting, then the response to the first message.
+                    # New session: send introduction, greeting, then first reply
                     intro = (
                         "My name is Eliza, an early natural language processing "
                         "computer program first created in 1966."
                     )
-                    now = int(time.time())
-                    if transport and transport.is_connected:
-                        try:
-                            transport.send_text(intro, destination=event.from_id, channel=0)
-                        except Exception:
-                            pass
-                    view.append_message(prefix=prefix, text=intro, rx_time=now, is_mine=True)
-                    self._write_message("me", event.from_id, 0, intro, now, True, None, prefix)
-                    self._log("TX", prefix, intro)
-
-                    now = int(time.time())
-                    if transport and transport.is_connected:
-                        try:
-                            transport.send_text(greeting, destination=event.from_id, channel=0)
-                        except Exception:
-                            pass
-                    view.append_message(prefix=prefix, text=greeting, rx_time=now, is_mine=True)
-                    self._write_message("me", event.from_id, 0, greeting, now, True, None, prefix)
-                    self._log("TX", prefix, greeting)
+                    self._send_dm_tracked(intro, event.from_id, prefix)
+                    self._send_dm_tracked(greeting, event.from_id, prefix)
 
                 # Feed the message into the session
                 reply = eliza.respond(event.from_id, text)
                 if reply:
-                    now = int(time.time())
-                    if transport and transport.is_connected:
-                        try:
-                            transport.send_text(reply, destination=event.from_id, channel=0)
-                        except Exception:
-                            pass
-                    view.append_message(prefix=prefix, text=reply, rx_time=now, is_mine=True)
-                    self._write_message("me", event.from_id, 0, reply, now, True, None, prefix)
-                    self._log("TX", prefix, reply)
+                    self._send_dm_tracked(reply, event.from_id, prefix)
 
                 try:
                     self.query_one(ComposeBar).set_prefix(prefix)
@@ -264,27 +236,23 @@ class MessagesView(Widget):
             if transport is None or not transport.is_connected:
                 return
             channel_idx, dest_id = self._resolve_send_destination(event.prefix)
-            try:
-                if dest_id == "^all":
+            if dest_id == "^all":
+                # Channel broadcast — no ACK tracking
+                try:
                     transport.send_text(event.text, channel=channel_idx or 0)
-                else:
-                    transport.send_text(event.text, destination=dest_id, channel=0)
-            except Exception:
-                return
-            now = int(time.time())
-            view = self.query_one("#message-view", MessageView)
-            view.append_message(prefix=event.prefix, text=event.text, rx_time=now, is_mine=True)
-            self._write_message(
-                "me",
-                dest_id,
-                channel_idx if channel_idx is not None else 0,
-                event.text,
-                now,
-                True,
-                None,
-                event.prefix,
-            )
-            self._log("TX", event.prefix, event.text)
+                except Exception:
+                    return
+                now = int(time.time())
+                view = self.query_one("#message-view", MessageView)
+                view.append_message(prefix=event.prefix, text=event.text, rx_time=now, is_mine=True)
+                self._write_message(
+                    "me", dest_id, channel_idx if channel_idx is not None else 0,
+                    event.text, now, True, None, event.prefix,
+                )
+                self._log("TX", event.prefix, event.text)
+            else:
+                # Direct message — track ACK
+                self._send_dm_tracked(event.text, dest_id, event.prefix)
         except Exception:
             pass
 
@@ -301,29 +269,92 @@ class MessagesView(Widget):
             if not self._last_prefix:
                 return
             channel_idx, dest_id = self._resolve_send_destination(self._last_prefix)
-            try:
-                if dest_id == "^all":
+            if dest_id == "^all":
+                # Channel broadcast — no ACK tracking
+                try:
                     transport.send_text("\x07", channel=channel_idx or 0)
-                else:
-                    transport.send_text("\x07", destination=dest_id, channel=0)
-            except Exception:
-                return
-            now = int(time.time())
-            view = self.query_one("#message-view", MessageView)
-            view.append_message(prefix=self._last_prefix, text="[BEL]", rx_time=now, is_mine=True)
-            self._write_message(
-                "me",
-                dest_id,
-                channel_idx if channel_idx is not None else 0,
-                "\x07",
-                now,
-                True,
-                None,
-                self._last_prefix,
-            )
-            self._log("TX", self._last_prefix, "[BEL]")
+                except Exception:
+                    return
+                now = int(time.time())
+                view = self.query_one("#message-view", MessageView)
+                view.append_message(
+                    prefix=self._last_prefix, text="[BEL]", rx_time=now, is_mine=True
+                )
+                self._write_message(
+                    "me", dest_id, channel_idx if channel_idx is not None else 0,
+                    "\x07", now, True, None, self._last_prefix,
+                )
+                self._log("TX", self._last_prefix, "[BEL]")
+            else:
+                # DM bell — track ACK; display as [BEL] but send raw \x07
+                self._send_dm_tracked("\x07", dest_id, self._last_prefix, display_text="[BEL]")
         except Exception:
             pass
+
+    # ------------------------------------------------------------------
+    # ACK tracking
+    # ------------------------------------------------------------------
+
+    def _send_dm_tracked(
+        self,
+        text: str,
+        dest_id: str,
+        prefix: str,
+        display_text: str | None = None,
+    ) -> None:
+        """Send a DM, append it to the view, and track its ACK status.
+
+        *display_text* overrides the text shown in the message view (used for
+        BEL where we send \\x07 but display "[BEL]").
+        """
+        transport = self.app.transport
+        if not transport or not transport.is_connected:
+            return
+
+        app = self.app  # captured for the callback closure
+
+        def _on_ack(response_packet: dict) -> None:
+            try:
+                decoded = response_packet.get("decoded", {})
+                request_id = decoded.get("requestId")
+                if request_id is None:
+                    return
+                routing = decoded.get("routing", {})
+                error = routing.get("errorReason", "NONE")
+                from_id = response_packet.get("fromId", "")
+                if error == "NONE":
+                    status = "*A" if from_id == dest_id else "*O"
+                else:
+                    status = "*-"
+                app.post_message(AckReceived(request_id, status))
+            except Exception:
+                pass
+
+        try:
+            packet = transport.send_text(text, destination=dest_id, channel=0, on_ack=_on_ack)
+        except Exception:
+            return
+
+        shown = display_text if display_text is not None else text
+        now = int(time.time())
+        view = self.query_one("#message-view", MessageView)
+        label = view.append_message(prefix=prefix, text=shown, rx_time=now, is_mine=True)
+        self._write_message("me", dest_id, 0, text, now, True, None, prefix)
+        self._log("TX", prefix, shown)
+
+        packet_id = getattr(packet, "id", None)
+        if packet_id is not None and label is not None:
+            self._pending_acks[packet_id] = label
+
+    def on_ack_received(self, event: AckReceived) -> None:
+        label = self._pending_acks.pop(event.packet_id, None)
+        if label is not None:
+            try:
+                self.query_one("#message-view", MessageView).update_ack_status(
+                    label, event.status
+                )
+            except Exception:
+                pass
 
     # ------------------------------------------------------------------
     # Workers
