@@ -2,9 +2,12 @@
 
 **MeshEliza runs the [Eliza](https://en.wikipedia.org/wiki/ELIZA) chatbot on a
 Meshtastic node, responding to direct messages over the mesh radio network.**
-When a remote node sends a direct message beginning with the word "eliza", the
-bot opens a session and replies as the classic psychotherapist Eliza for the
-duration of the conversation.  Send "bye" or "quit" to end the session.
+A session starts automatically the first time a remote node sends a direct
+message — no trigger word required.  Eliza replies as the classic
+psychotherapist for the duration of the conversation.  Send "bye" or "quit" to
+end the session; a new session starts on the next incoming DM.  Sessions that
+have been idle for 30 minutes are silently expired and restarted on the next
+message.
 
 > **⚠ UNTESTED — this code has not been run against real hardware and may not
 > work.**  It is a development prototype published for tracking purposes only.
@@ -96,15 +99,16 @@ automatically to the **Main Screen**.
 ## 3. Command-Line Flags
 
 ```
-mesheliza [--debug] [--bot] [--log]
+mesheliza [--debug] [--bot] [--log] [--noargs]
 ```
 
-| Flag      | Description                                                  |
-|-----------|--------------------------------------------------------------|
-| `--debug` | Enable DEBUG-level logging to `/tmp/mesheliza.log`.            |
-| `--bot`   | Enable the DM slash-command bot (see section 5.6).           |
-| `--log`   | Log all inbound and outbound messages to `/tmp/mesheliza-messages.log`. |
-| `-h`      | Print help and exit.                                         |
+| Flag       | Description                                                  |
+|------------|--------------------------------------------------------------|
+| `--debug`  | Enable DEBUG-level logging to `/tmp/mesheliza.log`.          |
+| `--bot`    | Enable the DM slash-command bot (see section 5.6).           |
+| `--log`    | Log all inbound and outbound messages to `/tmp/mesheliza-messages.log`. |
+| `--noargs` | Clear saved startup flags (`~/.config/mesheliza/last_flags`) and launch with no flags active. Useful if the auto-launch wrapper gets stuck replaying a bad flag. |
+| `-h`       | Print help and exit.                                         |
 
 ---
 
@@ -382,6 +386,7 @@ left off.
 | Ctrl+S    | Switch to Settings tab                        |
 | ↑ / ↓    | Scroll message history up / down one line     |
 | PgUp/PgDn | Scroll message history up / down one screen   |
+| Ctrl+G    | Send ASCII BEL (0x07) to the current destination |
 | Ctrl+R    | Refresh node table from radio                 |
 | Ctrl+D    | Disconnect and return to Connection Screen    |
 | Ctrl+Q    | Quit                                          |
