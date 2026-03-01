@@ -36,8 +36,9 @@ if [[ ! -f "$VENV_DIR/bin/activate" ]]; then
     exit 1
 fi
 
-echo ">>> Reinstalling package into virtualenv..."
+echo ">>> Reinstalling package and dependencies into virtualenv..."
 source "$VENV_DIR/bin/activate"
+pip install -r "$SCRIPT_DIR/requirements.txt" --no-cache-dir --quiet
 pip install -e "$SCRIPT_DIR" --no-cache-dir --quiet
 
 # ------------------------------------------------------------------ #
