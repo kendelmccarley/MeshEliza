@@ -19,6 +19,7 @@ class AppConfig:
         default_factory=lambda: str(Path.home() / ".config" / "mesheliza" / "messages.db")
     )
     node_short_name_display: bool = True
+    default_channel: int = 0
     theme: str = "mesheliza-multicolor"
 
 

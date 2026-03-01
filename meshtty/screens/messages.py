@@ -1,9 +1,9 @@
 """MessagesView — unified message history + compose bar.
 
-Only direct messages are displayed; channel broadcasts are silently ignored.
-Eliza chatbot sessions are managed automatically: when a node sends a DM
-that starts with "eliza" (case-insensitive) a session opens and subsequent
-DMs from that node are handled by the bot until the session ends.
+Eliza chatbot sessions are managed automatically for direct messages: when a
+node sends a DM that starts with "eliza" (case-insensitive) a session opens
+and subsequent DMs from that node are handled by the bot until the session
+ends.  Channel broadcasts are displayed normally and are not routed to Eliza.
 """
 
 from __future__ import annotations
@@ -12,6 +12,7 @@ import time
 
 from textual import work
 from textual.app import ComposeResult
+from textual.binding import Binding
 from textual.events import Key
 from textual.widget import Widget
 
@@ -22,6 +23,10 @@ from meshtty.widgets.message_view import MessageView
 
 class MessagesView(Widget):
     """Full messages panel: unified message history + compose."""
+
+    BINDINGS = [
+        Binding("ctrl+g", "send_bell", "Send BEL"),
+    ]
 
     DEFAULT_CSS = """
     MessagesView {
@@ -40,6 +45,14 @@ class MessagesView(Widget):
 
     def on_mount(self) -> None:
         self._load_history()
+        transport = self.app.transport
+        channels = transport.get_channels() if transport else []
+        first_name = channels[0][1] if channels else "Primary"
+        self._last_prefix = first_name
+        try:
+            self.query_one(ComposeBar).set_prefix(first_name)
+        except Exception:
+            pass
 
     def on_show(self) -> None:
         """Re-focus compose input whenever the Messages tab becomes active."""
@@ -68,29 +81,41 @@ class MessagesView(Widget):
             pass
 
     # ------------------------------------------------------------------
-    # Helpers (DM-only; no channel resolution)
+    # Prefix resolution helpers
     # ------------------------------------------------------------------
 
-    def _node_short_name(self, node_id: str) -> str:
-        """Return the short name for *node_id*, falling back to the ID."""
+    def _resolve_incoming_prefix(self, event: TextMessageReceived) -> str:
+        """Determine a human-readable prefix for an incoming message."""
+        transport = self.app.transport
+        if event.to_id == "^all":
+            if transport:
+                for idx, name in transport.get_channels():
+                    if idx == event.channel:
+                        return name
+            return f"Ch {event.channel}"
+        else:
+            if transport:
+                nodes = transport.get_nodes()
+                node = nodes.get(event.from_id, {})
+                user = node.get("user", {}) if node else {}
+                short = user.get("shortName", "").strip()
+                if short:
+                    return short
+            return event.from_id
+
+    def _resolve_send_destination(self, prefix: str) -> tuple[int | None, str]:
+        """Return (channel_idx, dest_id) from a prefix string."""
         transport = self.app.transport
         if transport:
-            node = transport.get_nodes().get(node_id, {})
-            short = (node.get("user", {}) or {}).get("shortName", "").strip()
-            if short:
-                return short
-        return node_id
-
-    def _resolve_send_destination(self, prefix: str) -> str | None:
-        """Return the node_id whose short name matches *prefix*, or None."""
-        transport = self.app.transport
-        if not transport:
-            return None
-        for node_id, node in transport.get_nodes().items():
-            short = (node.get("user", {}) or {}).get("shortName", "").strip()
-            if short and short.lower() == prefix.lower():
-                return node_id
-        return None
+            for idx, name in transport.get_channels():
+                if name.lower() == prefix.lower():
+                    return (idx, "^all")
+            for node_id, node in transport.get_nodes().items():
+                user = node.get("user", {}) if node else {}
+                short = user.get("shortName", "").strip()
+                if short and short.lower() == prefix.lower():
+                    return (None, node_id)
+        return (0, "^all")
 
     def _log(self, direction: str, prefix: str, text: str) -> None:
         ml = getattr(self.app, "message_log", None)
@@ -108,52 +133,60 @@ class MessagesView(Widget):
             if not text:
                 return
 
-            # Only handle direct messages; ignore channel broadcasts
-            if event.to_id == "^all":
-                return
-
+            is_dm = event.to_id != "^all"
             view = self.query_one("#message-view", MessageView)
-            prefix = self._node_short_name(event.from_id)
+            prefix = self._resolve_incoming_prefix(event)
             transport = self.app.transport
 
             # ----------------------------------------------------------------
-            # Eliza session handling (always-on)
+            # Slash-command handling: only for DMs starting with "/"
+            # (runs before Eliza so /commands still work when --bot is set)
             # ----------------------------------------------------------------
-            eliza = getattr(self.app, "eliza_handler", None)
-            if eliza is not None:
-
-                if eliza.is_active(event.from_id):
-                    # Feed text into the existing session
+            if is_dm and text.strip().startswith("/"):
+                handler = getattr(self.app, "command_handler", None)
+                if handler is not None:
+                    reply = handler.handle(text.strip())
+                    if reply is None:
+                        # Unknown command — silently drop
+                        return
+                    # Valid command: display the incoming command message
                     view.append_message(prefix=prefix, text=text, rx_time=event.rx_time)
                     self._write_message(
                         event.from_id, event.to_id, event.channel,
                         text, event.rx_time, False, event.packet_id, prefix,
                     )
                     self._log("RX", prefix, text)
-
-                    reply = eliza.respond(event.from_id, text)
-                    if reply:
-                        now = int(time.time())
-                        if transport and transport.is_connected:
-                            try:
-                                transport.send_text(reply, destination=event.from_id, channel=0)
-                            except Exception:
-                                pass
-                        view.append_message(prefix=prefix, text=reply, rx_time=now, is_mine=True)
-                        self._write_message("me", event.from_id, 0, reply, now, True, None, prefix)
-                        self._log("TX", prefix, reply)
+                    # Send reply back to sender and display it
+                    if transport and transport.is_connected:
+                        try:
+                            transport.send_text(reply, destination=event.from_id, channel=0)
+                        except Exception:
+                            pass
+                    now = int(time.time())
+                    view.append_message(prefix=prefix, text=reply, rx_time=now, is_mine=True)
+                    self._write_message(
+                        "me", event.from_id, 0,
+                        reply, now, True, None, prefix,
+                    )
+                    self._log("TX", prefix, reply)
                     return
 
-                elif eliza.is_trigger(text):
-                    # Start a new Eliza session for this node
-                    view.append_message(prefix=prefix, text=text, rx_time=event.rx_time)
-                    self._write_message(
-                        event.from_id, event.to_id, event.channel,
-                        text, event.rx_time, False, event.packet_id, prefix,
-                    )
-                    self._log("RX", prefix, text)
+            # ----------------------------------------------------------------
+            # Eliza session handling (DMs only, automatic on first message)
+            # ----------------------------------------------------------------
+            eliza = getattr(self.app, "eliza_handler", None)
+            if eliza is not None and is_dm:
+                # Display the incoming message first
+                view.append_message(prefix=prefix, text=text, rx_time=event.rx_time)
+                self._write_message(
+                    event.from_id, event.to_id, event.channel,
+                    text, event.rx_time, False, event.packet_id, prefix,
+                )
+                self._log("RX", prefix, text)
 
-                    greeting = eliza.start(event.from_id)
+                # Start a new session if none exists or the previous one timed out
+                greeting = eliza.ensure_session(event.from_id)
+                if greeting:
                     now = int(time.time())
                     if transport and transport.is_connected:
                         try:
@@ -164,72 +197,47 @@ class MessagesView(Widget):
                     self._write_message("me", event.from_id, 0, greeting, now, True, None, prefix)
                     self._log("TX", prefix, greeting)
 
-                    # Text after "eliza" becomes the first input to the session
-                    after = eliza.first_input(text)
-                    if after:
-                        reply = eliza.respond(event.from_id, after)
-                        if reply:
-                            now = int(time.time())
-                            if transport and transport.is_connected:
-                                try:
-                                    transport.send_text(reply, destination=event.from_id, channel=0)
-                                except Exception:
-                                    pass
-                            view.append_message(
-                                prefix=prefix, text=reply, rx_time=now, is_mine=True,
-                            )
-                            self._write_message(
-                                "me", event.from_id, 0, reply, now, True, None, prefix,
-                            )
-                            self._log("TX", prefix, reply)
-
-                    try:
-                        self.query_one(ComposeBar).set_prefix(prefix)
-                    except Exception:
-                        pass
-                    self._last_prefix = prefix
-                    return
-
-            # ----------------------------------------------------------------
-            # Slash-command bot handling (--bot flag)
-            # ----------------------------------------------------------------
-            if text.strip().startswith("/"):
-                handler = getattr(self.app, "command_handler", None)
-                if handler is not None:
-                    reply = handler.handle(text.strip())
-                    if reply is None:
-                        return  # Unknown command — silently drop
-                    view.append_message(prefix=prefix, text=text, rx_time=event.rx_time)
-                    self._write_message(
-                        event.from_id, event.to_id, event.channel,
-                        text, event.rx_time, False, event.packet_id, prefix,
-                    )
-                    self._log("RX", prefix, text)
+                # Feed the message into the session
+                reply = eliza.respond(event.from_id, text)
+                if reply:
+                    now = int(time.time())
                     if transport and transport.is_connected:
                         try:
                             transport.send_text(reply, destination=event.from_id, channel=0)
                         except Exception:
                             pass
-                    now = int(time.time())
                     view.append_message(prefix=prefix, text=reply, rx_time=now, is_mine=True)
                     self._write_message("me", event.from_id, 0, reply, now, True, None, prefix)
                     self._log("TX", prefix, reply)
-                    return
+
+                try:
+                    self.query_one(ComposeBar).set_prefix(prefix)
+                except Exception:
+                    pass
+                self._last_prefix = prefix
+                return
 
             # ----------------------------------------------------------------
-            # Normal DM display
+            # Normal message handling (DM or channel broadcast)
             # ----------------------------------------------------------------
+            prefix = self._resolve_incoming_prefix(event)
             self._last_prefix = prefix
-            view.append_message(prefix=prefix, text=text, rx_time=event.rx_time)
+            view.append_message(prefix=prefix, text=event.text, rx_time=event.rx_time)
             try:
                 self.query_one(ComposeBar).set_prefix(prefix)
             except Exception:
                 pass
             self._write_message(
-                event.from_id, event.to_id, event.channel,
-                text, event.rx_time, False, event.packet_id, prefix,
+                event.from_id,
+                event.to_id,
+                event.channel,
+                event.text,
+                event.rx_time,
+                False,
+                event.packet_id,
+                prefix,
             )
-            self._log("RX", prefix, text)
+            self._log("RX", prefix, event.text)
         except Exception:
             pass
 
@@ -239,19 +247,65 @@ class MessagesView(Widget):
             transport = self.app.transport
             if transport is None or not transport.is_connected:
                 return
-            dest_id = self._resolve_send_destination(event.prefix)
-            if dest_id is None:
-                # Prefix doesn't match any known node — don't send
-                return
+            channel_idx, dest_id = self._resolve_send_destination(event.prefix)
             try:
-                transport.send_text(event.text, destination=dest_id, channel=0)
+                if dest_id == "^all":
+                    transport.send_text(event.text, channel=channel_idx or 0)
+                else:
+                    transport.send_text(event.text, destination=dest_id, channel=0)
             except Exception:
                 return
             now = int(time.time())
             view = self.query_one("#message-view", MessageView)
             view.append_message(prefix=event.prefix, text=event.text, rx_time=now, is_mine=True)
-            self._write_message("me", dest_id, 0, event.text, now, True, None, event.prefix)
+            self._write_message(
+                "me",
+                dest_id,
+                channel_idx if channel_idx is not None else 0,
+                event.text,
+                now,
+                True,
+                None,
+                event.prefix,
+            )
             self._log("TX", event.prefix, event.text)
+        except Exception:
+            pass
+
+    # ------------------------------------------------------------------
+    # Actions
+    # ------------------------------------------------------------------
+
+    def action_send_bell(self) -> None:
+        """Send the ASCII BEL character (\\x07) to the current destination."""
+        try:
+            transport = self.app.transport
+            if transport is None or not transport.is_connected:
+                return
+            if not self._last_prefix:
+                return
+            channel_idx, dest_id = self._resolve_send_destination(self._last_prefix)
+            try:
+                if dest_id == "^all":
+                    transport.send_text("\x07", channel=channel_idx or 0)
+                else:
+                    transport.send_text("\x07", destination=dest_id, channel=0)
+            except Exception:
+                return
+            now = int(time.time())
+            view = self.query_one("#message-view", MessageView)
+            view.append_message(prefix=self._last_prefix, text="[BEL]", rx_time=now, is_mine=True)
+            self._write_message(
+                "me",
+                dest_id,
+                channel_idx if channel_idx is not None else 0,
+                "\x07",
+                now,
+                True,
+                None,
+                self._last_prefix,
+            )
+            self._log("TX", self._last_prefix, "[BEL]")
         except Exception:
             pass
 

@@ -108,6 +108,12 @@ class SettingsView(Widget):
             yield Label("Auto-connect on launch")
             yield Switch(value=cfg.auto_connect, id="sw-autoconnect")
 
+        yield Label("Messaging", classes="section-header")
+
+        with Vertical(classes="row"):
+            yield Label("Default channel")
+            yield Input(value=str(cfg.default_channel), placeholder="0", id="inp-channel")
+
         yield Label("Display", classes="section-header")
 
         with Vertical(classes="row"):
@@ -189,6 +195,10 @@ class SettingsView(Widget):
         cfg.auto_connect = self.query_one("#sw-autoconnect", Switch).value
         cfg.node_short_name_display = self.query_one("#sw-shortnames", Switch).value
         cfg.theme = self.query_one("#sel-theme", Select).value or "mesheliza-multicolor"
+        try:
+            cfg.default_channel = int(self.query_one("#inp-channel", Input).value)
+        except ValueError:
+            cfg.default_channel = 0
 
         save_config(cfg)
         self.app.theme = cfg.theme

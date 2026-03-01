@@ -11,16 +11,18 @@ from textual.widgets import Button, Label, Static
 _SHORTCUTS = """\
  Ctrl+T    Messages tab
  Ctrl+N    Nodes tab
+ Ctrl+L    Channels tab
  Ctrl+S    Settings tab
 
  Ctrl+R    Refresh node list
+ Ctrl+G    Send BEL (ASCII 0x07) to current destination
  Ctrl+D    Disconnect
  Ctrl+Q    Quit
  F1        This help screen
 
  Eliza bot:
-   DM "eliza"  Start a session
-   bye/quit    End the session
+   Auto-starts on first DM from any node
+   bye/quit    End the session (restarts on next DM)
 
  Node detail:
    Escape  Close

@@ -13,6 +13,7 @@ from meshtty.messages.app_messages import (
     NodeUpdated,
     TextMessageReceived,
 )
+from meshtty.screens.channels import ChannelView
 from meshtty.screens.messages import MessagesView
 from meshtty.screens.node_detail import NodeDetailModal
 from meshtty.screens.nodes import NodeListView
@@ -27,6 +28,7 @@ class MainScreen(Screen):
         Binding("ctrl+d", "app.disconnect", "Disconnect"),
         Binding("ctrl+r", "refresh_nodes", "Refresh"),
         Binding("ctrl+t", "switch_tab('tab-messages')", "Messages", priority=True),
+        Binding("ctrl+l", "switch_tab('tab-channels')", "Channels", priority=True),
         Binding("ctrl+n", "switch_tab('tab-nodes')", "Nodes", priority=True),
         Binding("ctrl+s", "switch_tab('tab-settings')", "Settings", priority=True),
     ]
@@ -35,6 +37,8 @@ class MainScreen(Screen):
         with TabbedContent(id="main-tabs", initial="tab-messages"):
             with TabPane("Messages", id="tab-messages"):
                 yield MessagesView(id="messages-view")
+            with TabPane("Channels", id="tab-channels"):
+                yield ChannelView(id="channels-view")
             with TabPane("Nodes", id="tab-nodes"):
                 yield NodeListView(id="nodes-view")
             with TabPane("Settings", id="tab-settings"):
@@ -50,6 +54,10 @@ class MainScreen(Screen):
     def on_connection_established(self, event: ConnectionEstablished) -> None:
         try:
             self.query_one("#settings-view", SettingsView).post_message(event)
+        except Exception:
+            pass
+        try:
+            self.query_one("#channels-view", ChannelView).post_message(event)
         except Exception:
             pass
 
@@ -114,11 +122,14 @@ class MainScreen(Screen):
     def action_switch_tab(self, tab_id: str) -> None:
         tc = self.query_one("#main-tabs", TabbedContent)
         tc.active = tab_id
+        # Drive focus into the newly visible pane so it's immediately usable
         try:
             if tab_id == "tab-messages":
                 self.query_one("#compose-input").focus()
             elif tab_id == "tab-nodes":
                 self.query_one("DataTable").focus()
+            elif tab_id == "tab-channels":
+                self.query_one("#channel-list").focus()
             elif tab_id == "tab-settings":
                 self.query_one("#settings-view").focus()
         except Exception:

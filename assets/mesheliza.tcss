@@ -83,6 +83,29 @@ ComposeBar Button {
 
 
 /* ------------------------------------------------------------------ */
+/* ChannelView                                                          */
+/* ------------------------------------------------------------------ */
+
+ChannelView {
+    height: 1fr;
+    padding: 1 2;
+}
+
+ChannelView #channel-list {
+    height: 1fr;
+    margin-top: 1;
+}
+
+ChannelView ListItem {
+    height: 3;
+    padding: 0 1;
+}
+
+ChannelView ListItem.--highlight {
+    background: $primary 30%;
+}
+
+/* ------------------------------------------------------------------ */
 /* NodeListView                                                         */
 /* ------------------------------------------------------------------ */
 

@@ -13,7 +13,7 @@ _INDEX_FILE = Path.home() / ".config" / "mesheliza" / "joke_index"
 _MAX_MSG_LEN = 200
 
 _HELP_TEXT = "/HELP /INFO /JOKE /GPIO /WEATHER /NEWS /NULL"
-_INFO_TEXT = "https://github.com/kendelmccarley/MeshTTY"
+_INFO_TEXT = "https://github.com/kendelmccarley/MeshEliza"
 
 _KNOWN_COMMANDS = {
     "/HELP",

@@ -1,27 +1,28 @@
 """ElizaHandler — manages per-node Eliza sessions over Meshtastic DMs.
 
-A session is created automatically when a node sends a direct message
-whose text begins with "eliza" (case-insensitive).  Subsequent DMs from
-that node are fed into the session until the user sends a quit word
-(bye / goodbye / quit), which closes the session and sends the final
-message.
+A session is created automatically on the first direct message received from a
+node.  All subsequent DMs from that node are fed into the session.  The session
+closes when:
+
+  * the remote node sends a quit word (bye / goodbye / quit), or
+  * no message has been received from that node for SESSION_TIMEOUT seconds
+    (checked lazily when the next message arrives).
+
+A new session starts automatically on the next message after a close.
 
 Usage::
 
     handler = ElizaHandler()
 
     # Incoming DM from node "!abc123"
-    if handler.is_active(node_id):
-        reply = handler.respond(node_id, text)   # None → session ended
-    elif handler.is_trigger(text):
-        greeting = handler.start(node_id)
-        after    = handler.first_input(text)      # text after "eliza"
-        reply    = handler.respond(node_id, after) if after else None
+    greeting = handler.ensure_session(node_id)   # str if new, None if already open
+    reply = handler.respond(node_id, text)
 """
 
 from __future__ import annotations
 
 import logging
+import time
 from pathlib import Path
 
 from meshtty.eliza.engine import Eliza
@@ -33,6 +34,9 @@ _DOCTOR = Path(__file__).parent / "doctor.txt"
 # Maximum safe single-packet text length for Meshtastic
 MAX_REPLY_LEN = 200
 
+# Idle timeout before a session is silently expired
+SESSION_TIMEOUT = 30 * 60  # 30 minutes
+
 
 def _truncate(text: str) -> str:
     if len(text) <= MAX_REPLY_LEN:
@@ -41,63 +45,65 @@ def _truncate(text: str) -> str:
 
 
 class ElizaHandler:
-    """Manages per-node Eliza sessions."""
+    """Manages per-node Eliza sessions with automatic timeout."""
 
     def __init__(self, script_path: Path = _DOCTOR) -> None:
         self._script = str(script_path)
         self._sessions: dict[str, Eliza] = {}
+        self._last_activity: dict[str, float] = {}
 
     # ------------------------------------------------------------------
     # Session queries
     # ------------------------------------------------------------------
 
     def is_active(self, node_id: str) -> bool:
-        """Return True if an Eliza session is open for *node_id*."""
-        return node_id in self._sessions
-
-    @staticmethod
-    def is_trigger(text: str) -> bool:
-        """Return True if *text* should open a new session."""
-        return text.strip().lower().startswith("eliza")
-
-    @staticmethod
-    def first_input(text: str) -> str:
-        """Extract the text after the "eliza" trigger word, if any."""
-        return text.strip()[5:].strip()
+        """Return True if a live, non-expired session exists for *node_id*."""
+        if node_id not in self._sessions:
+            return False
+        if time.monotonic() - self._last_activity.get(node_id, 0) > SESSION_TIMEOUT:
+            self._expire(node_id)
+            return False
+        return True
 
     # ------------------------------------------------------------------
     # Session lifecycle
     # ------------------------------------------------------------------
+
+    def ensure_session(self, node_id: str) -> str | None:
+        """Ensure a session exists for *node_id*.
+
+        Returns the initial greeting string if a new session was started,
+        or ``None`` if a session was already active.
+        """
+        if self.is_active(node_id):
+            return None
+        return self.start(node_id)
 
     def start(self, node_id: str) -> str:
         """Open a session for *node_id* and return the initial greeting."""
         bot = Eliza()
         bot.load(self._script)
         self._sessions[node_id] = bot
+        self._last_activity[node_id] = time.monotonic()
         log.info("Eliza session started for %s", node_id)
         return _truncate(bot.initial())
 
     def respond(self, node_id: str, text: str) -> str | None:
-        """Feed *text* into the active session.
+        """Feed *text* into the active session and return the bot's reply.
 
-        Returns the bot's reply, or ``None`` if the session has ended
-        (user sent a quit word — the final message has already been
-        consumed internally; the caller should fetch it via
-        ``end_session()`` *before* calling this, or handle None here).
-
-        Actually: returns the *final* goodbye string when a quit word
-        is detected, then removes the session — so the caller can
-        send it and the session is gone.  Returns ``None`` only when
-        ``node_id`` has no active session.
+        Returns the farewell string when a quit word is detected (session is
+        then removed).  Returns ``None`` if no session exists for *node_id*.
         """
         bot = self._sessions.get(node_id)
         if bot is None:
             return None
+        self._last_activity[node_id] = time.monotonic()
         reply = bot.respond(text)
         if reply is None:
             # Quit word — send the farewell and close the session
             final = bot.final()
-            del self._sessions[node_id]
+            self._sessions.pop(node_id, None)
+            self._last_activity.pop(node_id, None)
             log.info("Eliza session ended (quit) for %s", node_id)
             return _truncate(final)
         return _truncate(reply)
@@ -105,7 +111,18 @@ class ElizaHandler:
     def close(self, node_id: str) -> str | None:
         """Force-close a session, returning the final message or None."""
         bot = self._sessions.pop(node_id, None)
+        self._last_activity.pop(node_id, None)
         if bot is None:
             return None
         log.info("Eliza session force-closed for %s", node_id)
         return _truncate(bot.final())
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    def _expire(self, node_id: str) -> None:
+        """Silently remove an expired session."""
+        self._sessions.pop(node_id, None)
+        self._last_activity.pop(node_id, None)
+        log.info("Eliza session expired (30-min timeout) for %s", node_id)

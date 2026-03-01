@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import sys
 
 log = logging.getLogger(__name__)
 
@@ -86,6 +87,7 @@ class ConnectionScreen(Screen):
         super().__init__()
         self._connecting = False
         self._download_dots = 0
+        self._download_done = False
         self._download_timer = None
         self._already_transitioned = False
         self._autoconnect_timer = None
@@ -102,7 +104,11 @@ class ConnectionScreen(Screen):
                     yield DataTable(id="serial-table", show_cursor=True)
                     yield Label("Or enter port manually:", classes="section-label")
                     yield Input(
-                        placeholder="/dev/ttyUSB0",
+                        placeholder=(
+                            "/dev/cu.usbserial-XXXX"
+                            if sys.platform == "darwin"
+                            else "/dev/ttyUSB0"
+                        ),
                         id="serial-input",
                     )
                 with TabPane("TCP / WiFi", id="tab-tcp"):
@@ -262,7 +268,7 @@ class ConnectionScreen(Screen):
 
     def on_node_updated(self, event: NodeUpdated) -> None:
         """Count nodes arriving during the connection handshake and show progress."""
-        if not self._connecting:
+        if not self._connecting or self._download_done:
             return
         self._download_dots += 1
         dots = "." * self._download_dots
@@ -280,6 +286,7 @@ class ConnectionScreen(Screen):
         self._set_status(
             f"Download complete ({label}) \u2014 waiting for radio confirmation\u2026"
         )
+        self._download_done = True
 
     def on_tabbed_content_tab_activated(self, event: TabbedContent.TabActivated) -> None:
         if self._programmatic_tab_change:
@@ -318,6 +325,7 @@ class ConnectionScreen(Screen):
         self._connecting = True
         self._already_transitioned = False
         self._download_dots = 0
+        self._download_done = False
         if self._download_timer is not None:
             self._download_timer.stop()
             self._download_timer = None

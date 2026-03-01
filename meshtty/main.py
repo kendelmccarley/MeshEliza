@@ -15,7 +15,7 @@ from textual.widgets import Label
 
 from meshtty.bridge.event_bridge import EventBridge
 from meshtty.commands.command_handler import CommandHandler
-from meshtty.config.settings import AppConfig, load_config
+from meshtty.config.settings import AppConfig, load_config, CONFIG_DIR
 from meshtty.eliza.handler import ElizaHandler
 from meshtty.message_log import MESSAGE_LOG_FILE, MessageLog
 from meshtty.themes import ALL_THEMES
@@ -227,7 +227,38 @@ def main() -> None:
         action="store_true",
         help=f"Log all inbound and outbound messages to {MESSAGE_LOG_FILE}",
     )
+    parser.add_argument(
+        "--noargs",
+        action="store_true",
+        help="Clear saved startup flags and launch with no flags active.",
+    )
     args = parser.parse_args()
+
+    # --noargs overrides everything: clear the saved flags file and launch clean.
+    if args.noargs:
+        try:
+            CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+            (CONFIG_DIR / "last_flags").write_text("")
+        except OSError:
+            pass
+        print("Saved startup flags cleared.", file=sys.stderr)
+        app = MeshElizaApp()
+        app.run()
+        return
+
+    # Persist flags so mesheliza.sh can replay them on the next auto-launch.
+    flags = []
+    if args.debug:
+        flags.append("--debug")
+    if args.bot:
+        flags.append("--bot")
+    if args.log:
+        flags.append("--log")
+    try:
+        CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+        (CONFIG_DIR / "last_flags").write_text(" ".join(flags))
+    except OSError:
+        pass
 
     if args.debug:
         print(f"Debug logging enabled → {LOG_FILE}", file=sys.stderr)
