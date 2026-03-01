@@ -3,10 +3,11 @@
 **MeshEliza runs the [Eliza](https://en.wikipedia.org/wiki/ELIZA) chatbot on a
 Meshtastic node, responding to direct messages over the mesh radio network.**
 A session starts automatically the first time a remote node sends a direct
-message — no trigger word required.  Eliza replies as the classic
-psychotherapist for the duration of the conversation.  Send "bye" or "quit" to
-end the session; a new session starts on the next incoming DM.  Sessions that
-have been idle for 30 minutes are silently expired and restarted on the next
+message — no trigger word required.  On the first message Eliza introduces
+herself, delivers her opening greeting, and then responds to the message.
+Subsequent messages receive a direct response.  Send "bye" or "quit" to end
+the session; a new session starts on the next incoming DM.  Sessions that have
+been idle for 30 minutes are silently expired and restarted on the next
 message.
 
 > **⚠ UNTESTED — this code has not been run against real hardware and may not
