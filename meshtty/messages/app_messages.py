@@ -27,7 +27,7 @@ class TextMessageReceived(Message, bubble=False):
     def __init__(self, packet: dict) -> None:
         self.packet = packet
         decoded = packet.get("decoded", {})
-        self.from_id: str = packet.get("fromId", "!unknown")
+        self.from_id: str = packet.get("fromId") or "!unknown"
         self.to_id: str = packet.get("toId", "^all")
         self.channel: int = packet.get("channel", 0)
         self.text: str = decoded.get("text", "")

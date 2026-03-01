@@ -142,6 +142,9 @@ class MessagesView(Widget):
             if not text:
                 return
 
+            if not event.from_id:
+                return
+
             is_dm = event.to_id != "^all"
             view = self.query_one("#message-view", MessageView)
             prefix = self._resolve_incoming_prefix(event)

@@ -24,6 +24,7 @@ class _SerialInterface(meshtastic.serial_interface.SerialInterface):
 
     def __init__(self, dev_path: str, transport=None) -> None:
         self._transport_ref = transport
+        self._interface_set_early = False
         super().__init__(dev_path)
 
     def _waitConnected(self, timeout: float = _CONNECT_TIMEOUT) -> None:
@@ -43,7 +44,10 @@ class _SerialInterface(meshtastic.serial_interface.SerialInterface):
         # is_connected returns True by the time ConnectionEstablished is
         # processed by the asyncio loop (post_message is non-blocking, so
         # the event loop won't process the event until after this returns).
-        if self._transport_ref is not None:
+        # Guard against repeated calls (meshtastic calls _waitConnected again
+        # during internal reconnect/heartbeat cycles).
+        if self._transport_ref is not None and not self._interface_set_early:
+            self._interface_set_early = True
             self._transport_ref._interface = self
             log.debug("_interface set early on transport (pre-waitForConfig)")
 
