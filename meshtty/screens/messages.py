@@ -192,20 +192,19 @@ class MessagesView(Widget):
                 # Start a new session if none exists or the previous one timed out
                 greeting = eliza.ensure_session(event.from_id)
                 if greeting:
-                    # New session: queue intro → greeting → reply; the send queue
-                    # serialises them so each waits for the previous ACK (or 5 s
-                    # timeout) before transmitting.
+                    # New session: send intro + greeting only; skip respond() for
+                    # this first message so we don't double-greet the user.
                     intro = (
                         "My name is Eliza, an early natural language processing "
                         "computer program first created in 1966."
                     )
                     self._send_dm_tracked(intro, event.from_id, prefix)
                     self._send_dm_tracked(greeting, event.from_id, prefix)
-
-                # Feed the message into the session
-                reply = eliza.respond(event.from_id, text)
-                if reply:
-                    self._send_dm_tracked(reply, event.from_id, prefix)
+                else:
+                    # Existing session — feed the message and send the reply
+                    reply = eliza.respond(event.from_id, text)
+                    if reply:
+                        self._send_dm_tracked(reply, event.from_id, prefix)
 
                 try:
                     self.query_one(ComposeBar).set_prefix(prefix)
