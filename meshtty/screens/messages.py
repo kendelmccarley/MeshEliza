@@ -38,7 +38,11 @@ class MessagesView(Widget):
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
         self._last_prefix: str = ""
-        self._pending_acks: dict = {}  # packet_id (int) → Label
+        self._pending_acks: dict = {}        # packet_id (int) → Label widget
+        self._dm_queues: dict = {}           # dest_id → [(text, label), ...]
+        self._dm_locked: set = set()         # dest_ids with a packet in-flight
+        self._dm_packet_dest: dict = {}      # packet_id → dest_id
+        self._dm_timers: dict = {}           # dest_id → 5 s timeout Timer
 
     def compose(self) -> ComposeResult:
         yield MessageView(id="message-view")
@@ -188,7 +192,9 @@ class MessagesView(Widget):
                 # Start a new session if none exists or the previous one timed out
                 greeting = eliza.ensure_session(event.from_id)
                 if greeting:
-                    # New session: send introduction, greeting, then first reply
+                    # New session: queue intro → greeting → reply; the send queue
+                    # serialises them so each waits for the previous ACK (or 5 s
+                    # timeout) before transmitting.
                     intro = (
                         "My name is Eliza, an early natural language processing "
                         "computer program first created in 1966."
@@ -295,7 +301,7 @@ class MessagesView(Widget):
             pass
 
     # ------------------------------------------------------------------
-    # ACK tracking
+    # ACK tracking + per-destination send queue
     # ------------------------------------------------------------------
 
     def _send_dm_tracked(
@@ -305,7 +311,11 @@ class MessagesView(Widget):
         prefix: str,
         display_text: str | None = None,
     ) -> None:
-        """Send a DM, append it to the view, and track its ACK status.
+        """Display a DM immediately and enqueue it for radio transmission.
+
+        If another packet to *dest_id* is already in-flight the send is
+        held in a per-destination queue.  The next packet is fired only
+        after the in-flight packet is ACKed (or the 5 s timeout expires).
 
         *display_text* overrides the text shown in the message view (used for
         BEL where we send \\x07 but display "[BEL]").
@@ -314,7 +324,27 @@ class MessagesView(Widget):
         if not transport or not transport.is_connected:
             return
 
-        app = self.app  # captured for the callback closure
+        shown = display_text if display_text is not None else text
+        now = int(time.time())
+        view = self.query_one("#message-view", MessageView)
+        label = view.append_message(prefix=prefix, text=shown, rx_time=now, is_mine=True)
+        self._write_message("me", dest_id, 0, text, now, True, None, prefix)
+        self._log("TX", prefix, shown)
+
+        if dest_id in self._dm_locked:
+            self._dm_queues.setdefault(dest_id, []).append((text, label))
+        else:
+            self._dm_locked.add(dest_id)
+            self._fire_dm(text, dest_id, label)
+
+    def _fire_dm(self, text: str, dest_id: str, label) -> None:
+        """Transmit *text* to *dest_id* and arm the ACK timeout."""
+        transport = self.app.transport
+        if not transport or not transport.is_connected:
+            self._advance_dm_queue(dest_id)
+            return
+
+        app = self.app
 
         def _on_ack(response_packet: dict) -> None:
             try:
@@ -336,18 +366,39 @@ class MessagesView(Widget):
         try:
             packet = transport.send_text(text, destination=dest_id, channel=0, on_ack=_on_ack)
         except Exception:
+            self._advance_dm_queue(dest_id)
             return
 
-        shown = display_text if display_text is not None else text
-        now = int(time.time())
-        view = self.query_one("#message-view", MessageView)
-        label = view.append_message(prefix=prefix, text=shown, rx_time=now, is_mine=True)
-        self._write_message("me", dest_id, 0, text, now, True, None, prefix)
-        self._log("TX", prefix, shown)
-
         packet_id = getattr(packet, "id", None)
-        if packet_id is not None and label is not None:
-            self._pending_acks[packet_id] = label
+        if packet_id is not None:
+            if label is not None:
+                self._pending_acks[packet_id] = label
+            self._dm_packet_dest[packet_id] = dest_id
+            # Arm 5 s timeout so a lost ACK never stalls the queue forever
+            timer = self.set_timer(
+                5.0,
+                lambda: self._dm_ack_timeout(dest_id, packet_id),
+            )
+            self._dm_timers[dest_id] = timer
+        else:
+            # No trackable ID — advance immediately
+            self._advance_dm_queue(dest_id)
+
+    def _dm_ack_timeout(self, dest_id: str, packet_id: int) -> None:
+        """Called 5 s after a send if no ACK has arrived; advances the queue."""
+        self._dm_packet_dest.pop(packet_id, None)
+        self._dm_timers.pop(dest_id, None)
+        self._advance_dm_queue(dest_id)
+
+    def _advance_dm_queue(self, dest_id: str) -> None:
+        """Send the next queued packet for *dest_id*, or unlock if empty."""
+        queue = self._dm_queues.get(dest_id, [])
+        if queue:
+            text, label = queue.pop(0)
+            self._fire_dm(text, dest_id, label)
+        else:
+            self._dm_locked.discard(dest_id)
+            self._dm_queues.pop(dest_id, None)
 
     def on_ack_received(self, event: AckReceived) -> None:
         label = self._pending_acks.pop(event.packet_id, None)
@@ -358,6 +409,15 @@ class MessagesView(Widget):
                 )
             except Exception:
                 pass
+        dest_id = self._dm_packet_dest.pop(event.packet_id, None)
+        if dest_id is not None:
+            timer = self._dm_timers.pop(dest_id, None)
+            if timer is not None:
+                try:
+                    timer.stop()
+                except Exception:
+                    pass
+            self._advance_dm_queue(dest_id)
 
     # ------------------------------------------------------------------
     # Workers
